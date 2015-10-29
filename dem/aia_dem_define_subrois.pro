@@ -3,7 +3,8 @@ pro test_aia_dem_define_subrois
   one=1
   if one eq 1 then begin
      labels=['140708_01','131212_01','130517_01','130423_01','120915_01','120526_01',$
-	  '120424_01','110607_01','110211_02','110125_01']
+             '120424_01','110607_01','110211_02','110125_01']
+     labels=['140708_01']
      for ev=0,n_elements(labels)-1 do begin
          label=labels[ev]
          event=load_events_info(label=label)
@@ -24,7 +25,7 @@ pro test_aia_dem_define_subrois
 end
 
 
-pro aia_dem_define_subrois,event,savepath=savepath,force=force
+pro aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=regstep
 ;PURPOSE:
 ;
 ;This procedure defines the AIA ROIs for the ionization and DEM
@@ -39,7 +40,8 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
 ;
 ;INPUTS:
 ;       event - the event structure
-;
+;       regstep - the step for which to save the positions of the
+;                 ROIs. By default, this will be the half-time step.
 ;KEYWORDS:
 ; 
 ;
@@ -60,9 +62,10 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
   date=event.date
   ionizpath=event.ionizationpath
   eventname='AIA_'+date+'_'+label+'_'+wav
+  if not keyword_set(savepath) then savepath=event.savepath
   aiafile=event.savepath+'normalized_'+eventname+'_subdata.sav'
   shockfile=event.annuluspath+'annplot_'+date+'_'+label+'_'+wav+'_analyzed_radial.sav'
-
+  
   if file_exist(ionizpath+'rois_'+date+'_'+label+'.sav') and not keyword_set(force) then begin
      print,''
      print,'The file '+ionizpath+'rois_'+date+'_'+label+'.sav'+' exists.'
@@ -107,7 +110,8 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
   radiusfitlines*=RSUN*event.geomcorfactor
   radius=radiusfitlines/kmpx ;The fitted radius values
   nsteps=n_elements(time)
-  rr=floor(nsteps/2.)            ; this is the step of the region for which to save the positions.
+  ; this is the step of the region for which to save the positions.
+  if keyword_set(regstep) then rr=regstep else rr=floor(nsteps/2.)-2            
   ;The angle corresponding to latitude of the active region
   rad_angle=atan((ar[1]-suncenter[1])/(ar[0]-suncenter[0]))
   ;The distance from the AR position to the shock front
@@ -157,25 +161,29 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
   roi_polydata=dblarr(NUMROI,n_elements(subindex))
   roi_positions=replicate({npix:0,posind:dblarr(2,1.1*ROISIZE[0]*ROISIZE[1])},NUMROI) ;Hold the positions of all ROI pixels
 
-
+  
 ;+-----------------------------------------------------------------------------
+; Set a hemispheric correction
+if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
 ;Here, extract the angular information
   for roi=0,NUMROI-4 do begin
      roiname='R'+strtrim(string(roi+1),2)
      angle=(rad_angle+!PI/2.*roi/(NUMROI-4))-!PI/4.
+     ;print,angle,(ar[0]+hemcorr*radius[rr]*cos(angle))*scaling,(ar[1]+hemcorr*radius[rr]*sin(angle))*scaling
 ;Transform the region to its place.
-     
      reg = transform_volume(regvolume,rotation=[0,0,-(90-angle*180./!PI)],$
-                             translate=[(ar[0]+radius[rr]*cos(angle))*scaling,(ar[1]+radius[rr]*sin(angle))*scaling,0])
+                            translate=[(ar[0]+hemcorr*radius[rr]*cos(angle))*scaling,$
+                                       (ar[1]+hemcorr*radius[rr]*sin(angle))*scaling,0])
     
-;Here, check if the points are within the image. If not, set them to
-;the image limits. NOTE: THIS IS A HACK! There should be a better way
-;to determine if a region is entirely outside the AIA FOV
-     ind=where(reg[0,*] ge event.aiafov[0]*scaling)
-     if ind[0] ne -1 then reg[0,ind]=n_elements(im[*,0])-n_elements(ind)+ind
-     ind=where(reg[1,*] ge event.aiafov[1]*scaling)
-     if ind[0] ne -1 then reg[1,ind]=n_elements(im[0,*])-n_elements(ind)+ind
-    
+     ;Here, check if the points are within the image.
+     ;If not, force a recursion and lower
+     ;the timestep at which the ROIs are saved.
+     ind1=where(reg[0,*] ge event.aiafov[0]*scaling or reg[0,*] lt 0)
+     ind2=where(reg[1,*] ge event.aiafov[1]*scaling or reg[0,*] lt 0)
+     
+     if ind1[0] ne -1 or ind2[0] ne -1 then $
+        aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=rr-1
+
      
 ;Record the starting and ending positions
      roiStart_x[roi]=reg[0,0]
@@ -198,7 +206,7 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
      polyfill,reform(reg[0,*]),reform(reg[1,*]),/device
      xyouts,xrange[0]+roisize[0]/6.0,yrange[0]+roisize[1]/4.0,roiname,/device,$
             charsize=3,charthick=4,color=255
-     stop
+     
   endfor
 ;------------------------------------------------------------------------------
 
@@ -210,8 +218,19 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
   for roi=NUMROI-3, NUMROI-1 do begin
      roiname='R'+strtrim(string(roi+1),2)
      rad=rads[roi-(NUMROI-3)]
+     ;print,angle,(ar[0]+hemcorr*rad*cos(angle))*scaling,(ar[1]+hemcorr*rad*sin(angle))*scaling
      reg = transform_volume(regvolume,rotation=[0,0,-(90-angle*180./!PI)],$
-                            translate=[ar[0]+rad*cos(angle),ar[1]+rad*sin(angle),0])
+                            translate=[(ar[0]+hemcorr*rad*cos(angle))*scaling,$
+                                       (ar[1]+hemcorr*rad*sin(angle))*scaling,0])
+     ;Here, check if the points are within the image.
+     ;If not, force a recursion and lower
+     ;the timestep at which the ROIs are saved.
+     ind1=where(reg[0,*] ge event.aiafov[0]*scaling or reg[0,*] lt 0)
+     ind2=where(reg[1,*] ge event.aiafov[1]*scaling or reg[0,*] lt 0)
+     
+     if ind1[0] ne -1 or ind2[0] ne -1 then $
+        aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=rr-1
+     
      ;Record the starting and ending positions
      roiStart_x[roi]=reg[0,0]
      roiEnd_x[roi]=reg[0,1]
@@ -219,7 +238,7 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
      roiEnd_y[roi]=reg[1,3]
      xrange=[roiStart_x[roi],roiEnd_x[roi]]
      yrange=[roiStart_y[roi],roiEnd_y[roi]]
-     roi_radheight[roi]=sqrt((avg(reg[0,*])-xcenter)^2+(avg(reg[1,*])-ycenter)^2)/sunrad 
+     roi_radheight[roi]=sqrt((avg(reg[0,*])-xcenter)^2+(avg(reg[1,*])-ycenter)^2)/(sunrad*scaling)
      
      ;Obtain the polygon of positions inside the rectangle.
      reg_poly_ind=polyfillv(reform(reg[0,*]),reform(reg[1,*]),n_elements(im[*,0]),n_elements(im[0,*]))
@@ -233,6 +252,7 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force
      polyfill,reform(reg[0,*]),reform(reg[1,*]),/device
      xyouts,xrange[0]+roisize[0]/6.0,yrange[0]+roisize[1]/4.0,roiname,/device,$
             charsize=3,charthick=4,color=255
+     
   endfor
 ;------------------------------------------------------------------------------
   tvlct,rr,gg,bb,/get
