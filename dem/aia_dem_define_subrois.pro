@@ -4,7 +4,7 @@ pro test_aia_dem_define_subrois
   if one eq 1 then begin
      labels=['140708_01','131212_01','130517_01','130423_01','120915_01','120526_01',$
              '120424_01','110607_01','110211_02','110125_01']
-     labels=['130423_01']
+     labels=['140708_01']
      for ev=0,n_elements(labels)-1 do begin
          label=labels[ev]
          event=load_events_info(label=label)
@@ -247,12 +247,14 @@ if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
      
      if ind1[0] ne -1 or ind2[0] ne -1 then begin
         if rr gt 1 then begin
-           aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=rr-2,$
+           wait,0.5
+           aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=rr-1,$
                                   rad_roi_positions=rad_roi_positions*0.8,$
                                   subdata=subdata,subindex=subindex
         endif else begin
-           reg=indgen(3,3)
+           reg=findgen(3,4)+100
         endelse
+     endif
      ;Record the starting and ending positions
      roiStart_x[roi]=reg[0,0]
      roiEnd_x[roi]=reg[0,1]
