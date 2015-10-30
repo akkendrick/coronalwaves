@@ -3,11 +3,18 @@ pro test_aia_aschdem_analyze
 ;The actual events and AIA channels which to measure...
   ;begstep=[25,30,10,30,20,5,35,1] ;these are the initial steps for which to run the algorithm
   ;endstep=[100,100,100,85,90,100,110,110] ;these are the final steps for which to run the algorithm
-  trange='2011-05-11T'+['02:32:00','02:34:00']
-  event=load_events_info(label='test')
-  aia_aschdem_analyze,event,trange=trange
+  ;trange='2011-05-11T'+['02:32:00','02:34:00']
+  one=1
+  if one eq 1 then begin
+     labels=['140708_01','131212_01','130517_01','130423_01','120915_01','120526_01',$
+             '120424_01','110607_01','110211_02','110125_01']
+     for ev=0,n_elements(labels)-1 do begin
+        label=labels[ev]
+        event=load_events_info(label=label)
+        aia_aschdem_analyze,event;,trange=trange
+     endfor
+  endif
 end
-
 
 
 pro aia_aschdem_analyze,event,trange=trange,savepath=savepath

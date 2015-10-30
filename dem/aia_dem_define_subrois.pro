@@ -5,10 +5,12 @@ pro test_aia_dem_define_subrois
      labels=['140708_01','131212_01','130517_01','130423_01','120915_01','120526_01',$
              '120424_01','110607_01','110211_02','110125_01']
      labels=['140708_01']
+     rad_roi_positions=[-1000,1000,2000]
      for ev=0,n_elements(labels)-1 do begin
          label=labels[ev]
          event=load_events_info(label=label)
-         aia_dem_define_subrois,event,/force
+         aia_dem_define_subrois,event,rad_roi_positions=rad_roi_positions,/force
+         ;aia_aschdem_save_subrois,event
      endfor
   endif
   
@@ -17,11 +19,11 @@ pro test_aia_dem_define_subrois
   if all eq 1 then begin
      events=load_events_info()
      for ev=0,n_elements(events)-1 do begin
-        event=events[ev] 
+        event=events[ev]
         aia_dem_define_subrois,event
      endfor
   endif
-
+  
 end
 
 
@@ -74,6 +76,8 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=regstep,r
      return
   endif  
   
+  if not keyword_set(rad_roi_positions) then rad_roi_positions=[-100,100,200]
+  print, rad_roi_positions
 ;+==============================================================================
 ;LOAD THE DATA
   print,''
@@ -116,7 +120,7 @@ pro aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=regstep,r
   scaling=0.5
   ;Find the positions of the shock/wave nose along the radial direction
   pfss_shock_generate_csgs_radii,ind_arr,rad_data,radiusfitlines
-
+  
   
   
   ;fit=reform(rad_data.fitparams[0,*].front)
@@ -228,7 +232,6 @@ if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
 ;+-----------------------------------------------------------------------------
 ;Record the positions of three more regions along the radial direction
   angle=rad_angle
-  rad_roi_positions=[(-100),100,200]
   rads=radius[rr]+rad_roi_positions
   for roi=NUMROI-3, NUMROI-1 do begin
      roiname='R'+strtrim(string(roi+1),2)
@@ -244,17 +247,17 @@ if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
      ;along the radial direction.
      ind1=where(reg[0,*] ge event.aiafov[0]*scaling or reg[0,*] lt 0)
      ind2=where(reg[1,*] ge event.aiafov[1]*scaling or reg[0,*] lt 0)
-     
      if ind1[0] ne -1 or ind2[0] ne -1 then begin
+        print,rr
         if rr gt 1 then begin
            wait,0.5
            aia_dem_define_subrois,event,savepath=savepath,force=force,regstep=rr-1,$
-                                  rad_roi_positions=rad_roi_positions*0.8,$
+                                  rad_roi_positions=rad_roi_positions*0.7,$
                                   subdata=subdata,subindex=subindex
-        endif else begin
-           reg=findgen(3,4)+100
-        endelse
+           break
+        endif
      endif
+     
      ;Record the starting and ending positions
      roiStart_x[roi]=reg[0,0]
      roiEnd_x[roi]=reg[0,1]
@@ -266,18 +269,55 @@ if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
      
      ;Obtain the polygon of positions inside the rectangle.
      reg_poly_ind=polyfillv(reform(reg[0,*]),reform(reg[1,*]),n_elements(im[*,0]),n_elements(im[0,*]))
-     ;The two-dimensional position indices
-     arrind=array_indices(im,reg_poly_ind)
-     for tt=0,n_elements(subindex)-1 do roi_polydata[roi,tt]=avg(subdata[arrind[0,*],arrind[1,*],tt])
-     npix=n_elements(arrind[0,*])
-     roi_positions[roi].npix=npix
-     roi_positions[roi].posind[*,0:npix-1]=arrind
+     if reg_poly_ind[0] ne -1 then begin
+        ;The two-dimensional position indices
+        arrind=array_indices(im,reg_poly_ind)
+        for tt=0,n_elements(subindex)-1 do roi_polydata[roi,tt]=avg(subdata[arrind[0,*],arrind[1,*],tt])
+        npix=n_elements(arrind[0,*])
+        roi_positions[roi].npix=npix
+        roi_positions[roi].posind[*,0:npix-1]=arrind
 ;Fill the polygon rectangle with solid color.
-     polyfill,reform(reg[0,*]),reform(reg[1,*]),/device
-     xyouts,xrange[0]+roisize[0]/6.0,yrange[0]+roisize[1]/4.0,roiname,/device,$
-            charsize=3,charthick=4,color=255
-     
+        polyfill,reform(reg[0,*]),reform(reg[1,*]),/device
+        xyouts,xrange[0]+roisize[0]/6.0,yrange[0]+roisize[1]/4.0,roiname,/device,$
+               charsize=3,charthick=4,color=255
+     endif
   endfor
+  
+  
+  ;Check where the number of polygon pixels is zero, and remove from the array of positions structures
+  bad_roi_ind=where(roi_positions.npix eq 0)
+  if bad_roi_ind[0] ne -1 then begin
+     nbadroi=n_elements(bad_roi_ind)
+     cc=0
+     for ii=0,NUMROI-1 do begin
+        if ii ne bad_roi_ind[cc] then begin
+           if ii eq 0 then begin
+              good_roi_positions=roi_positions[ii]
+              good_roiStart_x=roiStart_x[ii]
+              good_roiStart_y=roiStart_y[ii]
+              good_roiEnd_x=roiEnd_x[ii]
+              good_roiEnd_y=roiEnd_y[ii]
+              good_roi_radheight=roi_radheight[ii]
+           endif else begin
+              good_roi_positions=[good_roi_positions,roi_positions[ii]]
+              good_roi_radheight=[good_roi_radheight,roi_radheight[ii]]
+              good_roiStart_x=[good_roiStart_x,roiStart_x[ii]]
+              good_roiStart_y=[good_roiStart_x,roiStart_x[ii]]
+              good_roiEnd_x=[good_roiStart_x,roiStart_x[ii]]
+              good_roiEnd_y=[good_roiStart_x,roiStart_x[ii]]
+           endelse
+           if ++cc eq nbadroi then break
+        endif
+     endfor
+     roi_positions=good_roi_positions
+     roiStart_x=good_roiStart_x
+     roiStart_y=good_roiStart_y
+     roiEnd_x=good_roiEnd_x
+     roiEnd_y=good_roiEnd_y
+     roi_radheight=good_roi_radheight
+     NUMROI=NUMROI-nbadroi
+  endif
+  
 ;------------------------------------------------------------------------------
   tvlct,rr,gg,bb,/get
   image=tvrd(/true)
@@ -292,8 +332,6 @@ if event.hemisphere eq 'E' then hemcorr=-1. else hemcorr=1.
      roi_subindex=newind
      
 ;Save the ROIs and updated index for each event and wavelength
-     ;save, filename=ionizpath+'rois_'+date+'_'+label+'.sav',roi_subindex,roi_radheight,roi_positions
+     save, filename=ionizpath+'rois_'+date+'_'+label+'.sav',roi_subindex,roi_radheight,roi_positions
      
-
-
 end

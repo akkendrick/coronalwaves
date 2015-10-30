@@ -1,9 +1,15 @@
 pro test_aia_aschdem_save_subrois
  ;You can run for one event, like this.
+;You can run for one event, like this.
   one=1
   if one eq 1 then begin
-     event=load_events_info(label='test')
-     aia_aschdem_save_subrois,event
+     labels=['140708_01','131212_01','130517_01','130423_01','120915_01','120526_01',$
+             '120424_01','110607_01','110211_02','110125_01']
+     for ev=0,n_elements(labels)-1 do begin
+         label=labels[ev]
+         event=load_events_info(label=label)
+         aia_aschdem_save_subrois,event
+     endfor
   endif
   
   
@@ -51,7 +57,7 @@ ionizpath=event.ionizationpath
 ionfile=ionizpath+'rois_'+date+'_'+label+'.sav'
 if find_file(ionfile) eq '' then begin
    print,''
-   print,'Files '+demfile+' does not exist. Quitting...'
+   print,'Files '+ionfile+' does not exist. Quitting...'
    print,''
    return
 endif
@@ -118,12 +124,14 @@ for t=0,ntimes-1 do begin
    restore, totdemfiles[t]
    times[t]=dateobs
    for r=0,nregions-1 do begin
-      arrind=roi_positions[r].posind[*,0:npix[r]-1]
-
-      chidata[r,t,0:npix[r]-1]=reform(chi_map[arrind[0,*],arrind[1,*]])
-      emdata[r,t,0:npix[r]-1]=reform(emlog[arrind[0,*],arrind[1,*]])
-      sigdata[r,t,0:npix[r]-1]=reform(sig_map[arrind[0,*],arrind[1,*]])
-      tedata[r,t,0:npix[r]-1]=reform(te_map[arrind[0,*],arrind[1,*]])
+      if roi_positions[r].npix gt 0 then begin
+         arrind=roi_positions[r].posind[*,0:npix[r]-1]
+         
+         chidata[r,t,0:npix[r]-1]=reform(chi_map[arrind[0,*],arrind[1,*]])
+         emdata[r,t,0:npix[r]-1]=reform(emlog[arrind[0,*],arrind[1,*]])
+         sigdata[r,t,0:npix[r]-1]=reform(sig_map[arrind[0,*],arrind[1,*]])
+         tedata[r,t,0:npix[r]-1]=reform(te_map[arrind[0,*],arrind[1,*]])
+      endif
    endfor
 endfor
 
