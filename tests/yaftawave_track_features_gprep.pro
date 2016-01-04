@@ -1,4 +1,4 @@
-pro test_yaftawave_track_features2
+pro test_yaftawave_track_gprep
   
   event=load_events_info(label='110511_01')
 ;  testpath='/home/kkozarev/algoTests/yafta/test/'
@@ -18,14 +18,18 @@ pro test_yaftawave_track_features2
   ;stop
   ;Run original size
   
-  ;yaftawave_track_features2,event,features,all_masks,/ps,min_size=2000,level=2,savepath=event.yaftawavepath+'2000px/'
-  yaftawave_track_features2,event,features,all_masks,/ps,min_size=2000,rebin=[512,1024];,/dilate;,savepath=event.yaftawavepath+'14000px/'
+                                ;yaftawave_track_features2,event,features,all_masks,/ps,min_size=2000,level=2,savepath=event.yaftawavepath+'2000px/'
+  smooth=16
+  min_size=20000
+  prepversion='v1'
+  yaftawave_track_gprep,event,features,all_masks,/ps,min_size=min_size,smooth=smooth,prepversion=prepversion;,rebin=[512,1024];,/dilate;,savepath=event.yaftawavepath+'14000px/'
 end
 
 
-pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepath=savepath,wav=wav,dilate=dilate,$
-                              threshold=threshold,ps=ps,nohanning=nohanning, level=level,eventname=eventname,$
-                              start_step=start_step,end_step=end_step,rebin=rebin,running=running,nodisk=nodisk
+pro yaftawave_track_gprep,event,features,all_masks,min_size=min_size,savepath=savepath,wav=wav,dilate=dilate,$
+                          threshold=threshold,ps=ps,nohanning=nohanning, level=level,eventname=eventname,$
+                          start_step=start_step,end_step=end_step,rebin=rebin,running=running,nodisk=nodisk,$
+                          smooth=smooth, prepversion=prepversion
 ;PURPOSE
 ;This test is the state of YAFTAWave development as of 08/31/2011
 ;The skeleton of the procedure is taken from the original yafta test
@@ -92,11 +96,57 @@ pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepat
   if not keyword_set(savepath) then $
      if not keyword_set (event) then savepath='./' else savepath=event.yaftawavepath
   
+;========================================================
+;SELECT THE PROPER KEYWORDS
   if not keyword_set(wav) then wav='193'
-  aia_load_data,event.st,event.et,wav,subindex=subindex,subdata=subdata,event=event,/subroi
+  ;LOADING THE AIA DATA - ORIGINAL VERSION
+  ;aia_load_data,event.st,event.et,wav,subindex=subindex,subdata=subdata,event=event,/subroi
+  ;GPREP VERSION: LOAD THE GPREPPED DATA
+  date='20110511'
+  basepath='/Users/kkozarev/Desktop/paper_YAFTA_Wave/'
+  aia_folder='20110511_193'
+  ;event=load_events_info(label='20110511')
+  if keyword_set(prepversion) then version=prepversion else version='v1'
+  if keyword_set(smooth) then smoothfactor=smooth else smoothfactor=8
+  path=basepath+aia_folder+'_'+version+'/'
  
-  nt=n_elements(subdata[0,0,*])
 
+;========================================================
+; LOAD THE AIA DATA 
+  aia_data_savename=savepath+"AIA_20110125_193_"+version
+  if not file_exist(aia_data_savename+".sav") then begin
+     
+     files=file_search(path+'*')
+     nfiles=n_elements(files)
+     
+;get the times
+     for f=0,nfiles-1 do begin
+        res=strsplit(file_basename(files[f]),'_',/extract)
+        if f eq 0 then time=res[3] else time=[time,res[3]]
+     endfor
+     
+     read_sdo,files,subindex,subdata,/uncomp_delete
+     help,subdata
+     nt=n_elements(subdata[0,0,*])
+     tmpdata=fltarr(1024,2048,nt)
+                                ;GET RID OF THE NANs!!!
+     tmp=where(finite(subdata,/nan))
+     if tmp[0] ne -1 then subdata[tmp]=0.0
+                                ;Make it a nice 1024x2048 array
+     for tt=0,nt-1 do tmpdata[*,*,tt] = subdata[1087:2110,448:2495,tt]
+     subdata=tmpdata
+     
+;========================================================		
+  
+     save,filename=aia_data_savename+".sav",subindex,subdata
+     save,filename=aia_data_savename+"_index.sav",subindex
+  endif else begin
+     restore,aia_data_savename+".sav"
+     nt=n_elements(subindex)
+  endelse
+
+;========================================================
+;KEYWORD REBIN
   if keyword_set(rebin) then begin
      if n_elements(rebin) ne 2 then begin
         print,'Keyword rebin must be a 2-element array. Continuing with original dimensions...'
@@ -107,6 +157,8 @@ pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepat
         subdata=newsubdata
      endelse
   endif
+;========================================================
+
   nx = n_elements(subdata[*,0,0])
   ny = n_elements(subdata[0,*,0])
   
@@ -126,26 +178,30 @@ pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepat
      end_step=nt-1
   endelse
   data_end_step=end_step
-
-;prepare base image
+ 
+;========================================================
+;BASE IMAGE PREPARATION
   baseim=fltarr(nx,ny)
   for i=0,baseavgnsteps-1 do baseim += subdata[*,*,i]
   baseim /=(1.0*baseavgnsteps)
-  tmpdata2=fltarr(rebin[0],rebin[1],nt)
-  for tt=0,nt-1 do tmpdata2[*,*,tt]=subdata[*,*,tt]-baseim
   
-  wdef,0,512,1024
-  tv,bytscl(tmpdata2[*,*,30],min=-50,max=50)
-  wdef,1,512,1024
-  tv,bytscl(sqrt(subdata[*,*,30]),min=1,max=40)
-  stop
+  tmpdata2=fltarr(512,1024,nt)
+  for tt=0,nt-1 do tmpdata2[*,*,tt]=rebin(subdata[*,*,tt]-baseim,512,1024)
+;========================================================
 
+  ;wdef,2,512,1024
+  ;tv,bytscl(tmpdata2[*,*,30],min=-0.1,max=0.1)
+  ;wdef,3,512,1024
+  ;tmp=rebin(subdata[*,*,30],512,1024)
+  ;tvscl,tmp
+  ;stop
+  
 ; set some parameters of tracking run
 ;====================================
   dx=subindex[0].IMSCL_MP*subindex[0].RSUN_REF/(1000.0*subindex[0].RSUN_OBS) ; AIA Full Disk pixel size in km
   if not keyword_set(min_size) then min_size = 2000                          ; only track features containing min_size pixels or more
   if not keyword_set(ps) then wdef,0,nx,ny
-  
+
   
 ;THE TIME STEP LOOP
   for t = data_start_step,data_end_step do begin
@@ -155,29 +211,31 @@ pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepat
      wav=strtrim(string(subindex[t].wavelnth),2)
      print, "Tracking step:",string(t+1)
      filenum = STRMID(STRING(1000 + fix(t+1), FORMAT = '(I4)'), 1)
-     filename = savepath+'yaftawave_'+event.date+'_'+event.label+'_'+wav+'_'+strtime
+     filename = savepath+'yaftawave_gprep_'+version+'_'+event.date+'_'+event.label+'_'+wav+'_'+strtime
 ;filename = savepath+STRCOMPRESS('ywave_'+'AIA_'+wav+'_'+strtrim(string(nx),2)+'_'+ filenum, /REMOVE_ALL)
      
                                 ; get current data array (suffix "2" is from
                                 ; current step, "1" is from prev. step)
                                 ;===========================================
      
-     
+     ;stop
      ;Despike the image, and subtract the base image from it.
      timind=subindex[t]
      
      if keyword_set(running) then begin
-        img2=subdata[*,*,t]-subdata[*,*,t-1]
+        img2=(subdata[*,*,t]-subdata[*,*,t-1])*1000.
         origim=img2
      endif else begin
         im=subdata[*,*,t]
-        img2 = im-baseim
+        img2 = (im-baseim)*1000.
         origim=img2
      endelse
-     img2=smooth(img2,2,/edge_truncate)
-     ;img2[where(img2 lt 0.0)]=0.0   
-     ;img2=img2^2
-     
+
+;===========================================
+;SMOOTH THE IMAGE
+     img2=smooth(img2,smoothfactor,/edge_truncate)
+     img2[where(img2 lt 0.0)]=0.0
+;===========================================
      
      ;Obtain some statistical information
      mom=moment(img2)
@@ -185,13 +243,14 @@ pro yaftawave_track_features2,event,features,all_masks,min_size=min_size,savepat
      stdv=sqrt(mom[1])
      
      
+     
      if not keyword_set(threshold) then begin
         if keyword_set(level) then thresh=stdv*level else thresh=stdv*0.2
      endif else begin
         thresh=threshold
      endelse
-print,stdv,thresh
-
+     print,stdv,thresh
+;stop
 ;Here, enhance the brighter features some more:
 ;===========================================
   ;  eqim=adapt_hist_equal(img2)
@@ -225,8 +284,8 @@ print,stdv,thresh
     
     ; defines structures for current data array
     ;============================================
-    create_features,img2, mask2, features2, min_size=min_size, $
-                    vx=vx, vy=vy, peakthreshold=peakthreshold, dx=dx;, /unipolar
+    create_features,img2, mask2, features2, min_size=min_size, $ ;/unipolar
+                    vx=vx, vy=vy, peakthreshold=peakthreshold, dx=dx
     
     ;error management - if no features are
     ;detected, move on to the next image
@@ -362,11 +421,12 @@ print,stdv,thresh
        all_features=features1
        if keyword_set(dilate) then all_dil_features=dil_features
     endif else begin
-       all_features = [all_features, features1]
-       if keyword_set(dilate) then all_dil_features=[all_dil_features,dil_features]
+       if all_features ne !NULL then begin
+          all_features = [all_features, features1]
+          if keyword_set(dilate) then all_dil_features=[all_dil_features,dil_features]
+       endif
     endelse
 
-;stop
  endfor
 
 
@@ -377,9 +437,9 @@ features = all_features
 
 ; Write data to YAFTA_output.sav
 ;=====================================
-if keyword_set(dilate) then save,features,all_masks,all_dil_features,all_dil_masks,thresh,min_size,dx,$
-                                filename=savepath+'yaftawave_'+event.date+'_'+event.label+'_'+wav+'_dilate.sav' $
-else save,features,all_masks,thresh,min_size,dx,$
-          filename=savepath+'yaftawave_'+event.date+'_'+event.label+'_'+wav+'.sav'
+if keyword_set(dilate) then save,features,all_masks,all_dil_features,all_dil_masks,thresh,min_size,dx,subindex,$
+                                filename=savepath+'yaftawave_gprep_'+version+'_'+event.date+'_'+event.label+'_'+wav+'_dilate.sav' $
+else save,features,all_masks,thresh,min_size,dx,subindex,$
+          filename=savepath+'yaftawave_gprep_'+version+'_'+event.date+'_'+event.label+'_'+wav+'.sav'
 
 end
